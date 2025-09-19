@@ -1,0 +1,19 @@
+#include "types.h"
+#include "user.h"
+#include "date.h"
+#include "fcntl.h"
+int main(int argc, char *argv[])
+{
+    int fd, n;
+    char buf[512];
+    fd = open("ls", O_RDWR);
+    n = read(fd, buf, sizeof(buf));
+    n = write(fd, buf, sizeof(buf));
+    // printf(2,"argc is %d\n",argc);
+    int r=exec("ls", argv);
+    // printf(1,"came after exec and result is %d\n",r);
+    close(fd);
+    // printf(1,"closed fd\n");
+    exit();
+    // printf(1,"final call\n");
+}
