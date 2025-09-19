@@ -6,4 +6,10 @@ This is a fork of https://github.com/mit-pdos/xv6-public.git.
 2. Added new shell commands:
     1. history – displays previously executed commands along with their process IDs (pid).
     2. block/unblock – shell commands to manage system call blocking.
+            "block x" command blocks system call with system call number x. (system call numbers are defined in syscall.h)
     3. chmod – modifies file permissions.
+            "chmod file mode" changes the permissions of file to mode.
+                mode: 3-bit integer
+                – bit 0: Allows the file to be read.
+                – bit 1: Allows the file to be written.
+                – bit 2: Allows execution.. 
