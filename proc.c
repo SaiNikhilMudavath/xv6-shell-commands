@@ -12,6 +12,37 @@ struct {
   struct proc proc[NPROC];
 } ptable;
 
+struct command_history
+{
+    char cmd[256];
+    int pid;
+    int memory_size;
+    int finished;
+};
+
+struct command_history fullhistory[100];
+int hindex=0;
+
+void add_command(char* cmd,int procid,int memsize)
+{
+    // cprintf("adding command %s its pid %d its mem %d\n",cmd,procid,memsize);
+    strncpy(fullhistory[hindex].cmd,cmd,sizeof(fullhistory[hindex].cmd)-1);
+    fullhistory[hindex].cmd[sizeof(fullhistory[hindex].cmd) - 1] = '\0';
+    fullhistory[hindex].pid=procid;
+    fullhistory[hindex].memory_size=memsize;
+    hindex++;
+}
+
+int printhistory(void)
+{
+  for(int i=2;i<hindex;i++)
+  {
+    if (fullhistory[i].finished==1)
+    cprintf("%d %s %d\n",fullhistory[i].pid,fullhistory[i].cmd,fullhistory[i].memory_size);
+  }
+  return 0;
+}
+
 static struct proc *initproc;
 
 int nextpid = 1;
@@ -160,7 +191,7 @@ growproc(int n)
 {
   uint sz;
   struct proc *curproc = myproc();
-
+  
   sz = curproc->sz;
   if(n > 0){
     if((sz = allocuvm(curproc->pgdir, sz, sz + n)) == 0)
@@ -170,6 +201,10 @@ growproc(int n)
       return -1;
   }
   curproc->sz = sz;
+  // if(curproc->name==fullhistory[hindex-1].cmd && fullhistory[hindex-1].memory_size<curproc->sz)
+  // {
+  //   fullhistory[hindex-1].memory_size=curproc->sz;
+  // }
   switchuvm(curproc);
   return 0;
 }
@@ -224,12 +259,29 @@ fork(void)
 // Exit the current process.  Does not return.
 // An exited process remains in the zombie state
 // until its parent calls wait() to find out it exited.
+
+extern int index;
+extern int exec_suc;
+
 void
 exit(void)
 {
   struct proc *curproc = myproc();
   struct proc *p;
   int fd;
+
+  // cprintf("exiting process %s and pid is %d and memory usage is %d\n",curproc->name,curproc->pid,curproc->sz);
+  // add_command(curproc->name,curproc->pid,curproc->sz);
+  // if(curproc->name==fullhistory[hindex].cmd) fullhistory[hindex].memory_size=curproc->sz;
+
+  for(int i=2;i<hindex;i++)
+  {
+    if(curproc->pid==fullhistory[i].pid)
+    {
+      fullhistory[i].finished=1;
+      break;
+    }
+  }
 
   if(curproc == initproc)
     panic("init exiting");
@@ -261,6 +313,12 @@ exit(void)
     }
   }
 
+  // cprintf("exiting process\n");
+  if(index>0 && (exec_suc==1)) 
+  {
+    index--;exec_suc=0;
+  }
+  
   // Jump into the scheduler, never to return.
   curproc->state = ZOMBIE;
   sched();
@@ -480,11 +538,18 @@ int
 kill(int pid)
 {
   struct proc *p;
+  // cprintf("in req\n");
 
   acquire(&ptable.lock);
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
     if(p->pid == pid){
       p->killed = 1;
+
+      // cprintf("killing process %s\n",p->name);
+      if(strncmp(p->name,"sh",2)==0 && strlen(p->name)==2)
+      {
+        index--;
+      }
       // Wake process from sleep if necessary.
       if(p->state == SLEEPING)
         p->state = RUNNABLE;

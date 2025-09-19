@@ -75,6 +75,12 @@ sys_read(void)
 
   if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argptr(1, &p, n) < 0)
     return -1;
+  // cprintf("access is %d\n",f->ip->access);
+  if((f->ip->access==0)||(f->ip->access==2)||(f->ip->access==4)||(f->ip->access==6))
+  {
+    cprintf("Operation read failed\n");
+    return -1;
+  }
   return fileread(f, p, n);
 }
 
@@ -87,6 +93,11 @@ sys_write(void)
 
   if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argptr(1, &p, n) < 0)
     return -1;
+  if((f->ip->access==0)||(f->ip->access==1)||(f->ip->access==4)||(f->ip->access==5))
+  {
+    cprintf("Operation write failed\n");
+    return -1;
+  }
   return filewrite(f, p, n);
 }
 
@@ -396,6 +407,7 @@ sys_chdir(void)
 int
 sys_exec(void)
 {
+  // cprintf("in sys exec\n");
   char *path, *argv[MAXARG];
   int i;
   uint uargv, uarg;
@@ -403,6 +415,26 @@ sys_exec(void)
   if(argstr(0, &path) < 0 || argint(1, (int*)&uargv) < 0){
     return -1;
   }
+
+  struct inode* ip;
+
+  begin_op();
+  if ((ip = namei(path)) == 0)
+  {
+    end_op();
+    return -1;
+  }
+  ilock(ip);
+  if(ip->access<4)
+  {
+    cprintf("Operation execute failed\n");
+    iunlock(ip);
+    return -1;
+  }
+  iunlock(ip);
+  end_op();
+
+
   memset(argv, 0, sizeof(argv));
   for(i=0;; i++){
     if(i >= NELEM(argv))
@@ -416,7 +448,10 @@ sys_exec(void)
     if(fetchstr(uarg, &argv[i]) < 0)
       return -1;
   }
-  return exec(path, argv);
+  // cprintf("passed sys_exec\n");
+  int rrr=exec(path, argv);
+  // cprintf("rrr is %d\n",rrr);
+  return rrr;
 }
 
 int
@@ -441,4 +476,27 @@ sys_pipe(void)
   fd[0] = fd0;
   fd[1] = fd1;
   return 0;
+}
+
+int sys_chmod(void)
+{
+  char* filepath;
+  int permission;
+  struct inode* ip;
+
+  if(argstr(0,&filepath)<0 || argint(1,&permission)<0) return -1;
+  begin_op();
+  if ((ip = namei(filepath)) == 0)
+  {
+    end_op();
+    return -1;
+  }
+  ilock(ip);
+  if(permission<0 || permission>7) return -1;
+  ip->access = permission;
+  iupdate(ip);
+  iunlock(ip);
+  end_op();
+  return 0;
+
 }

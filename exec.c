@@ -7,6 +7,8 @@
 #include "x86.h"
 #include "elf.h"
 
+extern int index;
+extern int add_command(char*,int,int);
 int
 exec(char *path, char **argv)
 {
@@ -18,6 +20,7 @@ exec(char *path, char **argv)
   struct proghdr ph;
   pde_t *pgdir, *oldpgdir;
   struct proc *curproc = myproc();
+  extern int exec_suc;
 
   begin_op();
 
@@ -26,6 +29,9 @@ exec(char *path, char **argv)
     cprintf("exec: fail\n");
     return -1;
   }
+  
+  index++;
+  exec_suc=1;
   ilock(ip);
   pgdir = 0;
 
@@ -101,6 +107,9 @@ exec(char *path, char **argv)
   curproc->tf->esp = sp;
   switchuvm(curproc);
   freevm(oldpgdir);
+
+  add_command(curproc->name,curproc->pid,curproc->sz);
+
   return 0;
 
  bad:

@@ -230,6 +230,7 @@ iupdate(struct inode *ip)
   dip->minor = ip->minor;
   dip->nlink = ip->nlink;
   dip->size = ip->size;
+  dip->access=ip->access;
   memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
   log_write(bp);
   brelse(bp);
@@ -303,6 +304,12 @@ ilock(struct inode *ip)
     ip->minor = dip->minor;
     ip->nlink = dip->nlink;
     ip->size = dip->size;
+    if (dip->update==0)
+    {
+      dip->access=7;ip->access=7;dip->update=1;
+    }
+    else ip->access=dip->access;
+    // cprintf("update is %d and set the access to %d\n",dip->update,ip->access);
     memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
     brelse(bp);
     ip->valid = 1;

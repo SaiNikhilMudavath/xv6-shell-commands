@@ -1,3 +1,4 @@
+#include "types.h"
 struct stat;
 struct rtcdate;
 
@@ -23,6 +24,11 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int gethistory(void);
+int block(int);
+int unblock(int);
+int chmod(char*,int);
+int inc(void);
 
 // ulib.c
 int stat(const char*, struct stat*);

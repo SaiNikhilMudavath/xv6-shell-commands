@@ -54,6 +54,7 @@ void panic(char*);
 struct cmd *parsecmd(char*);
 
 // Execute cmd.  Never returns.
+__attribute__((noreturn))
 void
 runcmd(struct cmd *cmd)
 {
@@ -67,14 +68,47 @@ runcmd(struct cmd *cmd)
   if(cmd == 0)
     exit();
 
+
   switch(cmd->type){
   default:
     panic("runcmd");
 
   case EXEC:
     ecmd = (struct execcmd*)cmd;
+    // if(strcmp(ecmd->argv[0],"history")==0)
+    // {
+    //   int hist=gethistory();
+    //   break;
+    // }
+    // if(strcmp(ecmd->argv[0],"block")==0)
+    // {
+    //   int syscall_num=atoi(ecmd->argv[1]);
+    //   block(syscall_num);
+    //   break;
+    // }
+    // else if(strcmp(ecmd->argv[0],"unblock")==0)
+    // {
+    //   int syscall_num=atoi(ecmd->argv[1]);
+    //   unblock(syscall_num);
+    //   break;
+    // }
+    // if(strcmp(ecmd->argv[0],"chmod")==0)
+    // {
+    //   int hist=chmod(ecmd->argv[1],atoi(ecmd->argv[2]));
+    //   break;
+    // }
+    
+    // if((strcmp(ecmd->argv[0],"sh")==0) && (strlen(ecmd->argv[0])==2))
+    // {
+      // inc();
+    // }
     if(ecmd->argv[0] == 0)
       exit();
+    if(strcmp(ecmd->argv[0],"kill")==0)
+    {
+      // printf(1,"argv is %d\n",ecmd->argv[1]);
+    }
+    // printf(1,"calling exec\n");
     exec(ecmd->argv[0], ecmd->argv);
     printf(2, "exec %s failed\n", ecmd->argv[0]);
     break;
@@ -164,9 +198,44 @@ main(void)
         printf(2, "cannot cd %s\n", buf+3);
       continue;
     }
-    if(fork1() == 0)
-      runcmd(parsecmd(buf));
-    wait();
+    
+    struct cmd* pcmd=parsecmd(buf);
+    
+    if(pcmd->type==EXEC)
+    { 
+      struct execcmd* pecmd=(struct execcmd*)pcmd;
+      if(strcmp(pecmd->argv[0],"history")==0)
+      {
+        int hist=gethistory();
+      }
+      else if(strcmp(pecmd->argv[0],"block")==0)
+      {
+        int syscall_num=atoi(pecmd->argv[1]);
+        block(syscall_num);
+      }
+      else if(strcmp(pecmd->argv[0],"unblock")==0)
+      {
+        int syscall_num=atoi(pecmd->argv[1]);
+        unblock(syscall_num);
+      }
+      else if(strcmp(pecmd->argv[0],"chmod")==0)
+      {
+        int hist=chmod(pecmd->argv[1],atoi(pecmd->argv[2]));
+      }
+      else 
+      {
+        // printf(1,"forking\n");
+        if(fork1() == 0)
+          runcmd(pcmd);
+        wait();
+      }
+    }
+    else 
+    {
+      if(fork1() == 0)
+        runcmd(pcmd);
+      wait();
+    }
   }
   exit();
 }

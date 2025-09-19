@@ -103,6 +103,11 @@ extern int sys_unlink(void);
 extern int sys_wait(void);
 extern int sys_write(void);
 extern int sys_uptime(void);
+extern int sys_gethistory(void);
+extern int sys_block(void);
+extern int sys_unblock(void);
+extern int sys_chmod(void);
+extern int sys_inc(void);
 
 static int (*syscalls[])(void) = {
 [SYS_fork]    sys_fork,
@@ -126,7 +131,15 @@ static int (*syscalls[])(void) = {
 [SYS_link]    sys_link,
 [SYS_mkdir]   sys_mkdir,
 [SYS_close]   sys_close,
+[SYS_gethistory] sys_gethistory,
+[SYS_block]   sys_block,
+[SYS_unblock] sys_unblock,
+[SYS_chmod]   sys_chmod,
+[SYS_inc]     sys_inc,
 };
+
+extern int blocksyscalls[30][30];
+extern int index;
 
 void
 syscall(void)
@@ -135,7 +148,15 @@ syscall(void)
   struct proc *curproc = myproc();
 
   num = curproc->tf->eax;
-  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
+  // cprintf("%d \n",num);
+  // cprintf("index is %d and bit vector is %d\n",index,blocksyscalls[num-1]);
+  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) 
+  {
+    if( (index>1) && (blocksyscalls[index-2][num]==1) ) 
+    {
+      cprintf("syscall %d is blocked\n",num);
+      return;
+    }
     curproc->tf->eax = syscalls[num]();
   } else {
     cprintf("%d %s: unknown sys call %d\n",

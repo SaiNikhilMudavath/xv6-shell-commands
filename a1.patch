@@ -1,0 +1,695 @@
+diff --git a/Makefile b/Makefile
+index 09d790c..6af86e3 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,3 +1,6 @@
++USERNAME = \"cs5200444\"
++PASSWORD = \"srijan\"
++
+ OBJS = \
+ 	bio.o\
+ 	console.o\
+@@ -76,7 +79,7 @@ AS = $(TOOLPREFIX)gas
+ LD = $(TOOLPREFIX)ld
+ OBJCOPY = $(TOOLPREFIX)objcopy
+ OBJDUMP = $(TOOLPREFIX)objdump
+-CFLAGS = -fno-pic -static -fno-builtin -fno-strict-aliasing -O2 -Wall -MD -ggdb -m32 -Werror -fno-omit-frame-pointer
++CFLAGS = -fno-pic -static -fno-builtin -fno-strict-aliasing -O2 -Wall -MD -ggdb -m32 -fno-omit-frame-pointer -DUSERNAME=$(USERNAME) -DPASSWORD=$(PASSWORD)
+ CFLAGS += $(shell $(CC) -fno-stack-protector -E -x c /dev/null >/dev/null 2>&1 && echo -fno-stack-protector)
+ ASFLAGS = -m32 -gdwarf-2 -Wa,-divide
+ # FreeBSD ld wants ``elf_i386_fbsd''
+@@ -157,7 +160,7 @@ _forktest: forktest.o $(ULIB)
+ 	$(OBJDUMP) -S _forktest > forktest.asm
+ 
+ mkfs: mkfs.c fs.h
+-	gcc -Werror -Wall -o mkfs mkfs.c
++	gcc -Wall -o mkfs mkfs.c
+ 
+ # Prevent deletion of intermediate files, e.g. cat.o, after first build, so
+ # that disk image changes after first build are persistent until clean.  More
+@@ -180,7 +183,8 @@ UPROGS=\
+ 	_stressfs\
+ 	_usertests\
+ 	_wc\
+-	_zombie\
++	_assign\
++
+ 
+ fs.img: mkfs README $(UPROGS)
+ 	./mkfs fs.img README $(UPROGS)
+@@ -248,6 +252,7 @@ qemu-nox-gdb: fs.img xv6.img .gdbinit
+ # check in that version.
+ 
+ EXTRA=\
++	assig1_2.c assig1_4.c\
+ 	mkfs.c ulib.c user.h cat.c echo.c forktest.c grep.c kill.c\
+ 	ln.c ls.c mkdir.c rm.c stressfs.c usertests.c wc.c zombie.c\
+ 	printf.c umalloc.c\
+@@ -283,4 +288,4 @@ tar:
+ 	cp dist/* dist/.gdbinit.tmpl /tmp/xv6
+ 	(cd /tmp; tar cf - xv6) | gzip >xv6-rev10.tar.gz  # the next one will be 10 (9/17)
+ 
+-.PHONY: dist-test dist
++.PHONY: dist-test dist
+\ No newline at end of file
+diff --git a/exec.c b/exec.c
+index b40134f..b71aac6 100644
+--- a/exec.c
++++ b/exec.c
+@@ -7,6 +7,8 @@
+ #include "x86.h"
+ #include "elf.h"
+ 
++extern int index;
++extern int add_command(char*,int,int);
+ int
+ exec(char *path, char **argv)
+ {
+@@ -18,6 +20,7 @@ exec(char *path, char **argv)
+   struct proghdr ph;
+   pde_t *pgdir, *oldpgdir;
+   struct proc *curproc = myproc();
++  extern int exec_suc;
+ 
+   begin_op();
+ 
+@@ -26,6 +29,9 @@ exec(char *path, char **argv)
+     cprintf("exec: fail\n");
+     return -1;
+   }
++  
++  index++;
++  exec_suc=1;
+   ilock(ip);
+   pgdir = 0;
+ 
+@@ -101,6 +107,9 @@ exec(char *path, char **argv)
+   curproc->tf->esp = sp;
+   switchuvm(curproc);
+   freevm(oldpgdir);
++
++  add_command(curproc->name,curproc->pid,curproc->sz);
++
+   return 0;
+ 
+  bad:
+diff --git a/file.h b/file.h
+index 0990c82..b36de15 100644
+--- a/file.h
++++ b/file.h
+@@ -23,6 +23,8 @@ struct inode {
+   short nlink;
+   uint size;
+   uint addrs[NDIRECT+1];
++  int access;
++  int update;
+ };
+ 
+ // table mapping major device number to
+diff --git a/fs.c b/fs.c
+index f77275f..a96abb1 100644
+--- a/fs.c
++++ b/fs.c
+@@ -230,6 +230,7 @@ iupdate(struct inode *ip)
+   dip->minor = ip->minor;
+   dip->nlink = ip->nlink;
+   dip->size = ip->size;
++  dip->access=ip->access;
+   memmove(dip->addrs, ip->addrs, sizeof(ip->addrs));
+   log_write(bp);
+   brelse(bp);
+@@ -303,6 +304,12 @@ ilock(struct inode *ip)
+     ip->minor = dip->minor;
+     ip->nlink = dip->nlink;
+     ip->size = dip->size;
++    if (dip->update==0)
++    {
++      dip->access=7;ip->access=7;dip->update=1;
++    }
++    else ip->access=dip->access;
++    // cprintf("update is %d and set the access to %d\n",dip->update,ip->access);
+     memmove(ip->addrs, dip->addrs, sizeof(ip->addrs));
+     brelse(bp);
+     ip->valid = 1;
+diff --git a/fs.h b/fs.h
+index 3214f1d..dc97a2f 100644
+--- a/fs.h
++++ b/fs.h
+@@ -33,6 +33,10 @@ struct dinode {
+   short nlink;          // Number of links to inode in file system
+   uint size;            // Size of file (bytes)
+   uint addrs[NDIRECT+1];   // Data block addresses
++  int access;
++  int update;
++  int padding[14];
++
+ };
+ 
+ // Inodes per block.
+diff --git a/init.c b/init.c
+index 046b551..2d5f7a2 100644
+--- a/init.c
++++ b/init.c
+@@ -7,6 +7,7 @@
+ 
+ char *argv[] = { "sh", 0 };
+ 
++#define  MAX_SIZE 256
+ int
+ main(void)
+ {
+@@ -20,7 +21,33 @@ main(void)
+   dup(0);  // stderr
+ 
+   for(;;){
+-    printf(1, "init: starting sh\n");
++
++    char username[MAX_SIZE];char password[MAX_SIZE];
++    int success=0;
++    for(int i=0;i<3;i++)
++    {
++      printf(1,"Enter Username: ");
++      int n=read(0,username,sizeof(username)-1);
++      if(n>0 && username[n-1]=='\n') username[n-1]='\0';
++      if(strcmp(username,USERNAME)!=0) continue;
++      printf(1,"Enter Password: ");
++      n=read(0,password,sizeof(password)-1);
++      if(n>0 && password[n-1]=='\n') password[n-1]='\0';
++      if(strcmp(password,PASSWORD)==0)
++      {
++        // printf(1,"Login successful\n");
++        success=1;break;
++      }
++    }
++    if(success==0)
++    {
++      while(1) sleep(100);
++    }
++
++
++
++    // printf(1, "init: starting sh\n");
++    
+     pid = fork();
+     if(pid < 0){
+       printf(1, "init: fork failed\n");
+diff --git a/proc.c b/proc.c
+index 806b1b1..382e906 100644
+--- a/proc.c
++++ b/proc.c
+@@ -12,6 +12,37 @@ struct {
+   struct proc proc[NPROC];
+ } ptable;
+ 
++struct command_history
++{
++    char cmd[256];
++    int pid;
++    int memory_size;
++    int finished;
++};
++
++struct command_history fullhistory[100];
++int hindex=0;
++
++void add_command(char* cmd,int procid,int memsize)
++{
++    // cprintf("adding command %s its pid %d its mem %d\n",cmd,procid,memsize);
++    strncpy(fullhistory[hindex].cmd,cmd,sizeof(fullhistory[hindex].cmd)-1);
++    fullhistory[hindex].cmd[sizeof(fullhistory[hindex].cmd) - 1] = '\0';
++    fullhistory[hindex].pid=procid;
++    fullhistory[hindex].memory_size=memsize;
++    hindex++;
++}
++
++int printhistory(void)
++{
++  for(int i=2;i<hindex;i++)
++  {
++    if (fullhistory[i].finished==1)
++    cprintf("%d %s %d\n",fullhistory[i].pid,fullhistory[i].cmd,fullhistory[i].memory_size);
++  }
++  return 0;
++}
++
+ static struct proc *initproc;
+ 
+ int nextpid = 1;
+@@ -160,7 +191,7 @@ growproc(int n)
+ {
+   uint sz;
+   struct proc *curproc = myproc();
+-
++  
+   sz = curproc->sz;
+   if(n > 0){
+     if((sz = allocuvm(curproc->pgdir, sz, sz + n)) == 0)
+@@ -170,6 +201,10 @@ growproc(int n)
+       return -1;
+   }
+   curproc->sz = sz;
++  // if(curproc->name==fullhistory[hindex-1].cmd && fullhistory[hindex-1].memory_size<curproc->sz)
++  // {
++  //   fullhistory[hindex-1].memory_size=curproc->sz;
++  // }
+   switchuvm(curproc);
+   return 0;
+ }
+@@ -224,6 +259,10 @@ fork(void)
+ // Exit the current process.  Does not return.
+ // An exited process remains in the zombie state
+ // until its parent calls wait() to find out it exited.
++
++extern int index;
++extern int exec_suc;
++
+ void
+ exit(void)
+ {
+@@ -231,6 +270,19 @@ exit(void)
+   struct proc *p;
+   int fd;
+ 
++  // cprintf("exiting process %s and pid is %d and memory usage is %d\n",curproc->name,curproc->pid,curproc->sz);
++  // add_command(curproc->name,curproc->pid,curproc->sz);
++  // if(curproc->name==fullhistory[hindex].cmd) fullhistory[hindex].memory_size=curproc->sz;
++
++  for(int i=2;i<hindex;i++)
++  {
++    if(curproc->pid==fullhistory[i].pid)
++    {
++      fullhistory[i].finished=1;
++      break;
++    }
++  }
++
+   if(curproc == initproc)
+     panic("init exiting");
+ 
+@@ -261,6 +313,12 @@ exit(void)
+     }
+   }
+ 
++  // cprintf("exiting process\n");
++  if(index>0 && (exec_suc==1)) 
++  {
++    index--;exec_suc=0;
++  }
++  
+   // Jump into the scheduler, never to return.
+   curproc->state = ZOMBIE;
+   sched();
+@@ -480,11 +538,18 @@ int
+ kill(int pid)
+ {
+   struct proc *p;
++  // cprintf("in req\n");
+ 
+   acquire(&ptable.lock);
+   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++){
+     if(p->pid == pid){
+       p->killed = 1;
++
++      // cprintf("killing process %s\n",p->name);
++      if(strncmp(p->name,"sh",2)==0 && strlen(p->name)==2)
++      {
++        index--;
++      }
+       // Wake process from sleep if necessary.
+       if(p->state == SLEEPING)
+         p->state = RUNNABLE;
+diff --git a/sh.c b/sh.c
+index 054bab9..e41ed5b 100644
+--- a/sh.c
++++ b/sh.c
+@@ -54,6 +54,7 @@ void panic(char*);
+ struct cmd *parsecmd(char*);
+ 
+ // Execute cmd.  Never returns.
++__attribute__((noreturn))
+ void
+ runcmd(struct cmd *cmd)
+ {
+@@ -67,14 +68,47 @@ runcmd(struct cmd *cmd)
+   if(cmd == 0)
+     exit();
+ 
++
+   switch(cmd->type){
+   default:
+     panic("runcmd");
+ 
+   case EXEC:
+     ecmd = (struct execcmd*)cmd;
++    // if(strcmp(ecmd->argv[0],"history")==0)
++    // {
++    //   int hist=gethistory();
++    //   break;
++    // }
++    // if(strcmp(ecmd->argv[0],"block")==0)
++    // {
++    //   int syscall_num=atoi(ecmd->argv[1]);
++    //   block(syscall_num);
++    //   break;
++    // }
++    // else if(strcmp(ecmd->argv[0],"unblock")==0)
++    // {
++    //   int syscall_num=atoi(ecmd->argv[1]);
++    //   unblock(syscall_num);
++    //   break;
++    // }
++    // if(strcmp(ecmd->argv[0],"chmod")==0)
++    // {
++    //   int hist=chmod(ecmd->argv[1],atoi(ecmd->argv[2]));
++    //   break;
++    // }
++    
++    // if((strcmp(ecmd->argv[0],"sh")==0) && (strlen(ecmd->argv[0])==2))
++    // {
++      // inc();
++    // }
+     if(ecmd->argv[0] == 0)
+       exit();
++    if(strcmp(ecmd->argv[0],"kill")==0)
++    {
++      // printf(1,"argv is %d\n",ecmd->argv[1]);
++    }
++    // printf(1,"calling exec\n");
+     exec(ecmd->argv[0], ecmd->argv);
+     printf(2, "exec %s failed\n", ecmd->argv[0]);
+     break;
+@@ -164,9 +198,44 @@ main(void)
+         printf(2, "cannot cd %s\n", buf+3);
+       continue;
+     }
+-    if(fork1() == 0)
+-      runcmd(parsecmd(buf));
+-    wait();
++    
++    struct cmd* pcmd=parsecmd(buf);
++    
++    if(pcmd->type==EXEC)
++    { 
++      struct execcmd* pecmd=(struct execcmd*)pcmd;
++      if(strcmp(pecmd->argv[0],"history")==0)
++      {
++        int hist=gethistory();
++      }
++      else if(strcmp(pecmd->argv[0],"block")==0)
++      {
++        int syscall_num=atoi(pecmd->argv[1]);
++        block(syscall_num);
++      }
++      else if(strcmp(pecmd->argv[0],"unblock")==0)
++      {
++        int syscall_num=atoi(pecmd->argv[1]);
++        unblock(syscall_num);
++      }
++      else if(strcmp(pecmd->argv[0],"chmod")==0)
++      {
++        int hist=chmod(pecmd->argv[1],atoi(pecmd->argv[2]));
++      }
++      else 
++      {
++        // printf(1,"forking\n");
++        if(fork1() == 0)
++          runcmd(pcmd);
++        wait();
++      }
++    }
++    else 
++    {
++      if(fork1() == 0)
++        runcmd(pcmd);
++      wait();
++    }
+   }
+   exit();
+ }
+diff --git a/syscall.c b/syscall.c
+index ee85261..5ad5e70 100644
+--- a/syscall.c
++++ b/syscall.c
+@@ -103,6 +103,11 @@ extern int sys_unlink(void);
+ extern int sys_wait(void);
+ extern int sys_write(void);
+ extern int sys_uptime(void);
++extern int sys_gethistory(void);
++extern int sys_block(void);
++extern int sys_unblock(void);
++extern int sys_chmod(void);
++extern int sys_inc(void);
+ 
+ static int (*syscalls[])(void) = {
+ [SYS_fork]    sys_fork,
+@@ -126,8 +131,16 @@ static int (*syscalls[])(void) = {
+ [SYS_link]    sys_link,
+ [SYS_mkdir]   sys_mkdir,
+ [SYS_close]   sys_close,
++[SYS_gethistory] sys_gethistory,
++[SYS_block]   sys_block,
++[SYS_unblock] sys_unblock,
++[SYS_chmod]   sys_chmod,
++[SYS_inc]     sys_inc,
+ };
+ 
++extern int blocksyscalls[30][30];
++extern int index;
++
+ void
+ syscall(void)
+ {
+@@ -135,7 +148,15 @@ syscall(void)
+   struct proc *curproc = myproc();
+ 
+   num = curproc->tf->eax;
+-  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) {
++  // cprintf("%d \n",num);
++  // cprintf("index is %d and bit vector is %d\n",index,blocksyscalls[num-1]);
++  if(num > 0 && num < NELEM(syscalls) && syscalls[num]) 
++  {
++    if( (index>1) && (blocksyscalls[index-2][num]==1) ) 
++    {
++      cprintf("syscall %d is blocked\n",num);
++      return;
++    }
+     curproc->tf->eax = syscalls[num]();
+   } else {
+     cprintf("%d %s: unknown sys call %d\n",
+diff --git a/syscall.h b/syscall.h
+index bc5f356..9826560 100644
+--- a/syscall.h
++++ b/syscall.h
+@@ -20,3 +20,8 @@
+ #define SYS_link   19
+ #define SYS_mkdir  20
+ #define SYS_close  21
++#define SYS_gethistory 22
++#define SYS_block  23
++#define SYS_unblock  24
++#define SYS_chmod 25
++#define SYS_inc 26
+diff --git a/sysfile.c b/sysfile.c
+index bfe61b7..b3ad2e7 100644
+--- a/sysfile.c
++++ b/sysfile.c
+@@ -75,6 +75,12 @@ sys_read(void)
+ 
+   if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argptr(1, &p, n) < 0)
+     return -1;
++  // cprintf("access is %d\n",f->ip->access);
++  if((f->ip->access==0)||(f->ip->access==2)||(f->ip->access==4)||(f->ip->access==6))
++  {
++    cprintf("Operation read failed\n");
++    return -1;
++  }
+   return fileread(f, p, n);
+ }
+ 
+@@ -87,6 +93,11 @@ sys_write(void)
+ 
+   if(argfd(0, 0, &f) < 0 || argint(2, &n) < 0 || argptr(1, &p, n) < 0)
+     return -1;
++  if((f->ip->access==0)||(f->ip->access==1)||(f->ip->access==4)||(f->ip->access==5))
++  {
++    cprintf("Operation write failed\n");
++    return -1;
++  }
+   return filewrite(f, p, n);
+ }
+ 
+@@ -396,6 +407,7 @@ sys_chdir(void)
+ int
+ sys_exec(void)
+ {
++  // cprintf("in sys exec\n");
+   char *path, *argv[MAXARG];
+   int i;
+   uint uargv, uarg;
+@@ -403,6 +415,26 @@ sys_exec(void)
+   if(argstr(0, &path) < 0 || argint(1, (int*)&uargv) < 0){
+     return -1;
+   }
++
++  struct inode* ip;
++
++  begin_op();
++  if ((ip = namei(path)) == 0)
++  {
++    end_op();
++    return -1;
++  }
++  ilock(ip);
++  if(ip->access<4)
++  {
++    cprintf("Operation execute failed\n");
++    iunlock(ip);
++    return -1;
++  }
++  iunlock(ip);
++  end_op();
++
++
+   memset(argv, 0, sizeof(argv));
+   for(i=0;; i++){
+     if(i >= NELEM(argv))
+@@ -416,7 +448,10 @@ sys_exec(void)
+     if(fetchstr(uarg, &argv[i]) < 0)
+       return -1;
+   }
+-  return exec(path, argv);
++  // cprintf("passed sys_exec\n");
++  int rrr=exec(path, argv);
++  // cprintf("rrr is %d\n",rrr);
++  return rrr;
+ }
+ 
+ int
+@@ -442,3 +477,26 @@ sys_pipe(void)
+   fd[1] = fd1;
+   return 0;
+ }
++
++int sys_chmod(void)
++{
++  char* filepath;
++  int permission;
++  struct inode* ip;
++
++  if(argstr(0,&filepath)<0 || argint(1,&permission)<0) return -1;
++  begin_op();
++  if ((ip = namei(filepath)) == 0)
++  {
++    end_op();
++    return -1;
++  }
++  ilock(ip);
++  if(permission<0 || permission>7) return -1;
++  ip->access = permission;
++  iupdate(ip);
++  iunlock(ip);
++  end_op();
++  return 0;
++
++}
+\ No newline at end of file
+diff --git a/sysproc.c b/sysproc.c
+index 0686d29..af93c2f 100644
+--- a/sysproc.c
++++ b/sysproc.c
+@@ -89,3 +89,58 @@ sys_uptime(void)
+   release(&tickslock);
+   return xticks;
+ }
++
++extern int printhistory();
++int sys_gethistory(void)
++{
++  return printhistory();
++}
++
++
++int blocksyscalls[30][30]={0}; //x is shell and y is syscall num
++int index=1;
++int exec_suc=0;
++
++int sys_inc(void)
++{
++  if(index>0)
++  {
++    for(int i=0;i<30;i++)
++    {
++      blocksyscalls[index][i]=blocksyscalls[index-1][i];
++    }
++  }
++  index++;
++}
++
++int sys_block(void)
++{
++  int syscnum;
++  int r=argint(0,&syscnum);
++  if(r<0) return -1;
++  if(syscnum<=0 || syscnum>26) return -1;
++  if(syscnum==1 || syscnum==2) return -1;
++  // blocksyscalls[syscnum]=1;
++  // cprintf("index is %d\n",index);
++  blocksyscalls[index-1][syscnum]=1;
++  // cprintf("blocking syscall %d and changing the bit and num is %d\n",syscnum,blocksyscalls[index-1]);
++  return 0;
++
++}
++
++int sys_unblock(void)
++{
++  int syscnum;
++  int r=argint(0,&syscnum);
++  if(r<0) return -1;
++  if(syscnum<=0 || syscnum>26) return -1;
++  if(syscnum==1 || syscnum==2) return -1;
++  // blocksyscalls[syscnum]=0;
++  if (index>1 && blocksyscalls[index-2][syscnum]==0)
++  {
++    blocksyscalls[index-1][syscnum]=0;
++  }
++  else if(index==1) blocksyscalls[index-1][syscnum]=0;
++  else return -1;
++  return 0;
++}
+\ No newline at end of file
+diff --git a/user.h b/user.h
+index 4f99c52..2efb5ad 100644
+--- a/user.h
++++ b/user.h
+@@ -1,3 +1,4 @@
++#include "types.h"
+ struct stat;
+ struct rtcdate;
+ 
+@@ -23,6 +24,11 @@ int getpid(void);
+ char* sbrk(int);
+ int sleep(int);
+ int uptime(void);
++int gethistory(void);
++int block(int);
++int unblock(int);
++int chmod(char*,int);
++int inc(void);
+ 
+ // ulib.c
+ int stat(const char*, struct stat*);
+diff --git a/usys.S b/usys.S
+index 8bfd8a1..5137ed9 100644
+--- a/usys.S
++++ b/usys.S
+@@ -29,3 +29,9 @@ SYSCALL(getpid)
+ SYSCALL(sbrk)
+ SYSCALL(sleep)
+ SYSCALL(uptime)
++
++SYSCALL(gethistory)
++SYSCALL(block)
++SYSCALL(unblock)
++SYSCALL(chmod)
++SYSCALL(inc)
+\ No newline at end of file
