@@ -1,5 +1,5 @@
-USERNAME = \"cs5200444\"
-PASSWORD = \"srijan\"
+USERNAME = \"usrnm1\"
+PASSWORD = \"unqpwd\"
 
 OBJS = \
 	bio.o\
@@ -183,7 +183,6 @@ UPROGS=\
 	_stressfs\
 	_usertests\
 	_wc\
-	_assign\
 
 
 fs.img: mkfs README $(UPROGS)
